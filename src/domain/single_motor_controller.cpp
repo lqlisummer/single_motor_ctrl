@@ -109,6 +109,10 @@ bool SingleMotorController::setStrongDragging(ThetaSource source, double voltage
     return driver_.setStrongDragging(source, voltage);
 }
 
+bool SingleMotorController::detectMotorAddress(std::uint16_t& can_id, std::uint16_t& can_line_id) const {
+    return board_.queryMotorAddress(can_id, can_line_id);
+}
+
 MotorTelemetry SingleMotorController::telemetry() const {
     return monitor_.latest();
 }

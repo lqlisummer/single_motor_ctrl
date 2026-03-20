@@ -64,6 +64,22 @@ bool BoardClient::setFastMode(bool enable, int hz) {
     return robot_set_fast_mode(ctx_, enable ? 1 : 0, hz) != 0;
 }
 
+bool BoardClient::queryMotorAddress(std::uint16_t& can_id, std::uint16_t& can_line_id) const {
+    if (ctx_ == nullptr) {
+        return false;
+    }
+
+    unsigned short raw_can_id = 0;
+    unsigned short raw_can_line_id = 0;
+    if (!robot_motor_get_motor_id(ctx_, &raw_can_id, &raw_can_line_id)) {
+        return false;
+    }
+
+    can_id = raw_can_id;
+    can_line_id = raw_can_line_id;
+    return true;
+}
+
 std::string BoardClient::queryFirmwareVersion() const {
     if (ctx_ == nullptr) {
         return {};

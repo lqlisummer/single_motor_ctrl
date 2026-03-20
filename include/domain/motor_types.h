@@ -69,7 +69,7 @@ struct BoardConfig {
 };
 
 struct MotorConfig {
-    std::uint16_t can_id{8};
+    std::uint16_t can_id{2};
     std::uint16_t can_line_id{1};
     double pos_kp{1.0};
     double vel_kp{0.05};

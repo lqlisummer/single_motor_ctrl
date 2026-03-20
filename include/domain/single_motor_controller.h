@@ -33,6 +33,7 @@ public:
     bool calibrate();
     bool setStrongDragging(ThetaSource source, double voltage);
 
+    bool detectMotorAddress(std::uint16_t& can_id, std::uint16_t& can_line_id) const;
     MotorTelemetry telemetry() const;
     MotorIdentity identify() const;
     MotorLifecycleState state() const noexcept;

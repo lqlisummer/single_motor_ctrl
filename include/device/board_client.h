@@ -21,6 +21,7 @@ public:
 
     bool isConnected() const noexcept;
     bool setFastMode(bool enable, int hz);
+    bool queryMotorAddress(std::uint16_t& can_id, std::uint16_t& can_line_id) const;
     std::string queryFirmwareVersion() const;
     std::string sdkVersion() const;
 

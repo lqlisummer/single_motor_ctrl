@@ -25,6 +25,7 @@ void printUsage() {
         << "motor_cli --config <path> <command> [args]\n\n"
         << "Commands:\n"
         << "  info\n"
+        << "  get-id\n"
         << "  enable\n"
         << "  disable\n"
         << "  clear-fault\n"
@@ -79,6 +80,14 @@ int runShell(SingleMotorController& controller, const MotorConfig& motor_cfg) {
             std::cout << "model=" << id.model << "\n"
                       << "motor_fw=" << id.firmware_version << "\n"
                       << "board_fw=" << id.board_firmware_version << "\n";
+            continue;
+        }
+        if (cmd == "get-id") {
+            std::uint16_t can_id = 0;
+            std::uint16_t can_line_id = 0;
+            if (!controller.detectMotorAddress(can_id, can_line_id)) { std::cout << "failed\n"; continue; }
+            std::cout << "can_id=" << can_id << "\n"
+                      << "can_line_id=" << can_line_id << "\n";
             continue;
         }
         if (cmd == "enable") { std::cout << (controller.enable() ? "ok\n" : "failed\n"); continue; }
@@ -235,6 +244,18 @@ int CliApp::run(int argc, char** argv) {
         std::cout << "model=" << id.model << "\n"
                   << "motor_fw=" << id.firmware_version << "\n"
                   << "board_fw=" << id.board_firmware_version << "\n";
+        return 0;
+    }
+
+    if (cmd == "get-id") {
+        std::uint16_t can_id = 0;
+        std::uint16_t can_line_id = 0;
+        if (!controller.detectMotorAddress(can_id, can_line_id)) {
+            std::cerr << "failed to detect motor id\n";
+            return 4;
+        }
+        std::cout << "can_id=" << can_id << "\n"
+                  << "can_line_id=" << can_line_id << "\n";
         return 0;
     }
 

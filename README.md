@@ -33,10 +33,24 @@ cmake -S . -B build
 cmake --build build -j
 ```
 
+
+## 控制主机部署与操作流程
+
+如果仓库已经部署到控制主机 `/items/single_motor_ctrl`，建议直接按 `docs/operation_guide.md` 执行现场联调流程，文档中已经补充了：
+
+- 进入控制主机目录
+- 检查 SDK 动态库
+- 修改 `configs/motor_cli.conf`（当前电机默认按 CAN ID `2`、CAN line `1` 配置）
+- 构建 CLI
+- `info / get-id / clear-fault / shell / monitor` 的推荐顺序
+- 位置、速度、电流、PD、强拖、置零、校准的操作步骤
+- 常见故障排查
+
 ## CLI 用法
 
 ```bash
 ./build/motor_cli --config configs/motor_cli.conf info
+./build/motor_cli --config configs/motor_cli.conf get-id
 ./build/motor_cli --config configs/motor_cli.conf enable
 ./build/motor_cli --config configs/motor_cli.conf mode position
 ./build/motor_cli --config configs/motor_cli.conf set-pos 1.0
@@ -50,6 +64,7 @@ cmake --build build -j
 ## 支持的指令
 
 - `info`：查询电机型号、电机固件、主板固件。
+- `get-id`：通过主板查询当前在线电机的 CAN ID 和 CAN line。
 - `enable` / `disable`：直接下发使能/失能控制字。
 - `clear-fault`：清故障。
 - `zero`：位置置零。
