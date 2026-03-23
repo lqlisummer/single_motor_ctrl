@@ -49,6 +49,8 @@ cmake --build build -j
 ## CLI 用法
 
 ```bash
+./build/motor_cli --config configs/motor_cli.conf dump-config
+./build/motor_cli --config configs/motor_cli.conf raw-get-model
 ./build/motor_cli --config configs/motor_cli.conf info
 ./build/motor_cli --config configs/motor_cli.conf get-id
 ./build/motor_cli --config configs/motor_cli.conf enable
@@ -63,6 +65,8 @@ cmake --build build -j
 
 ## 支持的指令
 
+- `dump-config`：打印 CLI 实际加载到的板卡/电机配置。
+- `raw-get-model`：按厂家最小示例路径直接读取电机型号，绕过控制器封装。
 - `info`：查询电机型号、电机固件、主板固件。
 - `get-id`：通过主板查询当前在线电机的 CAN ID 和 CAN line。
 - `enable` / `disable`：直接下发使能/失能控制字。

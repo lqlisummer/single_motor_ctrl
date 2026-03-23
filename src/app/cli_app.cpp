@@ -1,5 +1,6 @@
 #include "app/cli_app.h"
 
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -13,17 +14,28 @@
 #include "common/config_loader.h"
 #include "domain/single_motor_controller.h"
 
+extern "C" {
+#include "RobotControl.h"
+}
+
 namespace smc {
 namespace {
 
 bool parseMode(const std::string& text, MotorControlMode& mode);
 bool parseTheta(const std::string& text, ThetaSource& source);
+void printBoardConfig(const BoardConfig& board_cfg);
+void printMotorConfig(const MotorConfig& motor_cfg);
+void printLoadedConfig(const BoardConfig& board_cfg, const MotorConfig& motor_cfg);
+bool runRawGetModel(const BoardConfig& board_cfg, const MotorConfig& motor_cfg, std::string& model, std::string* board_fw);
 void printTelemetry(const MotorTelemetry& t);
+int printCommandResult(bool ok);
 
 void printUsage() {
     std::cout
         << "motor_cli --config <path> <command> [args]\n\n"
         << "Commands:\n"
+        << "  dump-config\n"
+        << "  raw-get-model\n"
         << "  info\n"
         << "  get-id\n"
         << "  enable\n"
@@ -41,7 +53,7 @@ void printUsage() {
         << "  shell\n";
 }
 
-int runShell(SingleMotorController& controller, const MotorConfig& motor_cfg) {
+int runShell(SingleMotorController& controller, const BoardConfig& board_cfg, const MotorConfig& motor_cfg) {
     std::cout << "interactive shell started, type help for commands, quit to exit\n";
     std::string line;
     while (std::cout << "> " && std::getline(std::cin, line)) {
@@ -73,6 +85,23 @@ int runShell(SingleMotorController& controller, const MotorConfig& motor_cfg) {
         }
         if (cmd == "help") {
             printUsage();
+            continue;
+        }
+        if (cmd == "dump-config") {
+            printLoadedConfig(board_cfg, motor_cfg);
+            continue;
+        }
+        if (cmd == "raw-get-model") {
+            std::string model;
+            std::string board_fw;
+            if (!runRawGetModel(board_cfg, motor_cfg, model, &board_fw)) {
+                std::cout << "failed\n";
+                continue;
+            }
+            std::cout << "raw_model=" << model << "\n";
+            if (!board_fw.empty()) {
+                std::cout << "raw_board_fw=" << board_fw << "\n";
+            }
             continue;
         }
         if (cmd == "info") {
@@ -156,6 +185,79 @@ int runShell(SingleMotorController& controller, const MotorConfig& motor_cfg) {
     return 0;
 }
 
+void printBoardConfig(const BoardConfig& board_cfg) {
+    std::cout << "board.local_ip=" << board_cfg.local_ip << "\n"
+              << "board.local_port=" << board_cfg.local_port << "\n"
+              << "board.remote_ip=" << board_cfg.remote_ip << "\n"
+              << "board.remote_port=" << board_cfg.remote_port << "\n"
+              << "board.dev_id=" << board_cfg.dev_id << "\n"
+              << "board.fast_mode_enabled=" << (board_cfg.fast_mode_enabled ? "true" : "false") << "\n"
+              << "board.fast_mode_hz=" << board_cfg.fast_mode_hz << "\n";
+}
+
+void printMotorConfig(const MotorConfig& motor_cfg) {
+    std::cout << "motor.can_id=" << motor_cfg.can_id << "\n"
+              << "motor.can_line_id=" << motor_cfg.can_line_id << "\n"
+              << "motor.pos_kp=" << motor_cfg.pos_kp << "\n"
+              << "motor.vel_kp=" << motor_cfg.vel_kp << "\n"
+              << "motor.vel_ki=" << motor_cfg.vel_ki << "\n"
+              << "motor.pd_kp=" << motor_cfg.pd_kp << "\n"
+              << "motor.pd_kd=" << motor_cfg.pd_kd << "\n"
+              << "motor.default_position_rad=" << motor_cfg.default_position_rad << "\n"
+              << "motor.default_velocity_rad_s=" << motor_cfg.default_velocity_rad_s << "\n"
+              << "motor.default_current_a=" << motor_cfg.default_current_a << "\n";
+}
+
+void printLoadedConfig(const BoardConfig& board_cfg, const MotorConfig& motor_cfg) {
+    printBoardConfig(board_cfg);
+    printMotorConfig(motor_cfg);
+}
+
+bool runRawGetModel(const BoardConfig& board_cfg, const MotorConfig& motor_cfg, std::string& model, std::string* board_fw) {
+    RobotCtx* ctx = robot_create(board_cfg.dev_id);
+    if (ctx == nullptr) {
+        return false;
+    }
+
+    const int connected = robot_config_net(
+        ctx,
+        board_cfg.local_ip.c_str(),
+        board_cfg.local_port,
+        board_cfg.remote_port,
+        board_cfg.remote_ip.c_str());
+    if (!connected) {
+        robot_destroy(ctx);
+        return false;
+    }
+
+    RobotMotor* motor = robot_create_motor(ctx, motor_cfg.can_id, motor_cfg.can_line_id);
+    if (motor == nullptr) {
+        robot_destroy(ctx);
+        return false;
+    }
+
+    std::array<char, 128> model_buffer{};
+    const int model_ok = robot_motor_get_motor_model(motor, model_buffer.data());
+    if (board_fw != nullptr) {
+        std::array<char, 128> board_buffer{};
+        if (robot_motor_get_mother_board_firmware_version(ctx, board_buffer.data())) {
+            *board_fw = board_buffer.data();
+        } else {
+            board_fw->clear();
+        }
+    }
+
+    robot_destroy_motor(ctx, motor);
+    robot_destroy(ctx);
+
+    if (!model_ok) {
+        return false;
+    }
+
+    model = model_buffer.data();
+    return true;
+}
+
 bool parseMode(const std::string& text, MotorControlMode& mode) {
     if (text == "position") mode = MotorControlMode::Position;
     else if (text == "velocity") mode = MotorControlMode::Velocity;
@@ -174,6 +276,15 @@ bool parseTheta(const std::string& text, ThetaSource& source) {
     else if (text == "fusion") source = ThetaSource::SensorFusion;
     else return false;
     return true;
+}
+
+int printCommandResult(bool ok) {
+    if (ok) {
+        std::cout << "ok\n";
+        return 0;
+    }
+    std::cout << "failed\n";
+    return 4;
 }
 
 void printTelemetry(const MotorTelemetry& t) {
@@ -231,13 +342,32 @@ int CliApp::run(int argc, char** argv) {
         return 2;
     }
 
+    const std::string cmd = args[0];
+
+    if (cmd == "dump-config") {
+        printLoadedConfig(board_cfg, motor_cfg);
+        return 0;
+    }
+
+    if (cmd == "raw-get-model") {
+        std::string model;
+        std::string board_fw;
+        if (!runRawGetModel(board_cfg, motor_cfg, model, &board_fw)) {
+            std::cout << "failed\n";
+            return 4;
+        }
+        std::cout << "raw_model=" << model << "\n";
+        if (!board_fw.empty()) {
+            std::cout << "raw_board_fw=" << board_fw << "\n";
+        }
+        return 0;
+    }
+
     SingleMotorController controller(board_cfg, motor_cfg);
     if (!bootstrapController(controller)) {
         std::cerr << "failed to initialize controller\n";
         return 3;
     }
-
-    const std::string cmd = args[0];
 
     if (cmd == "info") {
         auto id = controller.identify();
@@ -260,19 +390,19 @@ int CliApp::run(int argc, char** argv) {
     }
 
     if (cmd == "enable") {
-        return controller.enable() ? 0 : 4;
+        return printCommandResult(controller.enable());
     }
     if (cmd == "disable") {
-        return controller.disable() ? 0 : 4;
+        return printCommandResult(controller.disable());
     }
     if (cmd == "clear-fault") {
-        return controller.clearFault() ? 0 : 4;
+        return printCommandResult(controller.clearFault());
     }
     if (cmd == "zero") {
-        return controller.zero() ? 0 : 4;
+        return printCommandResult(controller.zero());
     }
     if (cmd == "calibrate") {
-        return controller.calibrate() ? 0 : 4;
+        return printCommandResult(controller.calibrate());
     }
     if (cmd == "mode") {
         if (args.size() < 2) {
@@ -284,56 +414,64 @@ int CliApp::run(int argc, char** argv) {
             std::cerr << "invalid mode\n";
             return 1;
         }
-        return controller.setMode(mode) ? 0 : 4;
+        return printCommandResult(controller.setMode(mode));
     }
     if (cmd == "set-pos") {
         if (args.size() < 2) {
             std::cerr << "set-pos requires <rad>\n";
             return 1;
         }
-        controller.setMode(MotorControlMode::Position);
+        if (!controller.setMode(MotorControlMode::Position)) {
+            return printCommandResult(false);
+        }
         if (!controller.enable()) {
-            return 4;
+            return printCommandResult(false);
         }
         controller.moveTo(std::stod(args[1]));
-        return 0;
+        return printCommandResult(true);
     }
     if (cmd == "set-vel") {
         if (args.size() < 2) {
             std::cerr << "set-vel requires <rad_s>\n";
             return 1;
         }
-        controller.setMode(MotorControlMode::Velocity);
+        if (!controller.setMode(MotorControlMode::Velocity)) {
+            return printCommandResult(false);
+        }
         if (!controller.enable()) {
-            return 4;
+            return printCommandResult(false);
         }
         controller.spin(std::stod(args[1]));
-        return 0;
+        return printCommandResult(true);
     }
     if (cmd == "set-cur") {
         if (args.size() < 2) {
             std::cerr << "set-cur requires <amp>\n";
             return 1;
         }
-        controller.setMode(MotorControlMode::Current);
+        if (!controller.setMode(MotorControlMode::Current)) {
+            return printCommandResult(false);
+        }
         if (!controller.enable()) {
-            return 4;
+            return printCommandResult(false);
         }
         controller.applyCurrent(std::stod(args[1]));
-        return 0;
+        return printCommandResult(true);
     }
     if (cmd == "set-pd-target") {
         if (args.size() < 4) {
             std::cerr << "set-pd-target requires <pos> <vel> <cur>\n";
             return 1;
         }
-        controller.setMode(MotorControlMode::Pd);
+        if (!controller.setMode(MotorControlMode::Pd)) {
+            return printCommandResult(false);
+        }
         if (!controller.enable()) {
-            return 4;
+            return printCommandResult(false);
         }
         controller.driver().setPd(motor_cfg.pd_kp, motor_cfg.pd_kd);
         controller.setPdTarget(std::stod(args[1]), std::stod(args[2]), std::stod(args[3]));
-        return 0;
+        return printCommandResult(true);
     }
     if (cmd == "strong-drag") {
         if (args.size() < 3) {
@@ -345,14 +483,16 @@ int CliApp::run(int argc, char** argv) {
             std::cerr << "invalid strong-drag source\n";
             return 1;
         }
-        controller.setMode(MotorControlMode::Velocity);
-        if (!controller.enable()) {
-            return 4;
+        if (!controller.setMode(MotorControlMode::Velocity)) {
+            return printCommandResult(false);
         }
-        return controller.setStrongDragging(source, std::stod(args[2])) ? 0 : 4;
+        if (!controller.enable()) {
+            return printCommandResult(false);
+        }
+        return printCommandResult(controller.setStrongDragging(source, std::stod(args[2])));
     }
     if (cmd == "shell") {
-        return runShell(controller, motor_cfg);
+        return runShell(controller, board_cfg, motor_cfg);
     }
     if (cmd == "monitor") {
         const int count = args.size() >= 2 ? std::stoi(args[1]) : 10;

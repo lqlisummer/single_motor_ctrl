@@ -2,7 +2,13 @@
 
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <utility>
+
+#if defined(__unix__) || defined(__APPLE__)
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #include "device/board_client.h"
 
@@ -13,6 +19,51 @@ extern "C" {
 
 namespace smc {
 namespace {
+
+#if defined(__unix__) || defined(__APPLE__)
+class ScopedStdoutSilencer {
+public:
+    ScopedStdoutSilencer() {
+        fflush(stdout);
+        null_fd_ = open("/dev/null", O_WRONLY);
+        if (null_fd_ < 0) {
+            return;
+        }
+        saved_stdout_ = dup(STDOUT_FILENO);
+        if (saved_stdout_ < 0) {
+            close(null_fd_);
+            null_fd_ = -1;
+            return;
+        }
+        if (dup2(null_fd_, STDOUT_FILENO) < 0) {
+            close(saved_stdout_);
+            close(null_fd_);
+            saved_stdout_ = -1;
+            null_fd_ = -1;
+        }
+    }
+
+    ~ScopedStdoutSilencer() {
+        if (saved_stdout_ >= 0) {
+            fflush(stdout);
+            dup2(saved_stdout_, STDOUT_FILENO);
+            close(saved_stdout_);
+        }
+        if (null_fd_ >= 0) {
+            close(null_fd_);
+        }
+    }
+
+private:
+    int saved_stdout_{-1};
+    int null_fd_{-1};
+};
+#else
+class ScopedStdoutSilencer {
+public:
+    ScopedStdoutSilencer() = default;
+};
+#endif
 
 unsigned int toSdkMode(MotorControlMode mode) {
     return static_cast<unsigned int>(mode);
@@ -50,6 +101,7 @@ bool MotorDriver::create() {
 
 void MotorDriver::destroy() {
     if (motor_ != nullptr && board_.raw() != nullptr) {
+        ScopedStdoutSilencer silencer;
         robot_destroy_motor(board_.raw(), motor_);
     }
     motor_ = nullptr;
